@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "statsector"
+version = "0.1.0"
+description = ""
+authors = ["Jonny Daenen <jonnydaenen@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.23.2"}
+geopandas = "0.13.2"
+protobuf = "4.24.4"
+pyproj = "3.6.0"
+requests = "2.31.0"
+shapely = "2.0.2"
+google-cloud-secret-manager = "^2.16.4"
+pyarrow = "^13.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
