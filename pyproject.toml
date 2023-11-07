@@ -6,8 +6,8 @@ authors = ["Jonny Daenen <jonnydaenen@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "^0.104.0"
+python = "^3.10"
+fastapi = "0.103" # 2023-11-07 keep it locked, due to bug https://github.com/pyodide/pyodide/issues/4234#issuecomment-1771735148
 uvicorn = {extras = ["standard"], version = "^0.23.2"}
 geopandas = "0.13.2"
 protobuf = "4.24.4"
@@ -16,6 +16,8 @@ requests = "2.31.0"
 shapely = "2.0.2"
 google-cloud-secret-manager = "^2.16.4"
 pyarrow = "^13.0.0"
+httpx = "^0.25.1"
+typing-extensions = "4.7" # 2023-11-07 fix for fastapi bug, see https://github.com/pyodide/pyodide/issues/4234#issuecomment-1771735148
 
 
 [build-system]
