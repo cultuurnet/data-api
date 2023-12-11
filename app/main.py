@@ -19,7 +19,7 @@ config = Config()
 api_key = config.get_api_key()
 
 # Location of static file
-statsector_parquet = impresources.files(data) / 'statistical_sectors_2022.parquet'
+statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parquet'
 
 app = FastAPI()
 
