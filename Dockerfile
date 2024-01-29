@@ -1,6 +1,7 @@
 FROM python:3.11.3
 ENV PYTHONUNBUFFERED True
 
+RUN apt update && apt install -y libgdal-dev
 RUN pip install --upgrade pip
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r  requirements.txt

@@ -2,6 +2,7 @@ from functools import cache
 import logging
 from importlib import resources as impresources
 
+import os
 import geopandas as gpd
 import requests
 from fastapi import FastAPI, Query
@@ -15,8 +16,13 @@ from . import data
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-config = Config()
-api_key = config.get_api_key()
+if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') != None:
+    logger.info('Starting with geo_coding enabled')
+    config = Config()
+    api_key = config.get_api_key()
+else:
+    logger.info('Starting with geo_coding disabled')
+    api_key = ''
 
 # Location of static file
 statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parquet'
@@ -46,7 +52,6 @@ async def get_statsector(
                 return {"error": "'address' must be of type string."}
             
             base_url = "https://maps.googleapis.com/maps/api/geocode/json"
-            
             params = {
                 "address": address,
                 "key": api_key,
