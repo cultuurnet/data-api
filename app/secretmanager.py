@@ -11,11 +11,12 @@ class Config:
 
         # Build the secret version name
         secret_version_name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-
+        print("fetching secret {}".format(secret_version_name))
         try:
             # Access the secret version and decode the payload
             response = client.access_secret_version(name=secret_version_name)
             api_key = response.payload.data.decode("UTF-8")
+            print("secret fetched")
             return api_key
         except Exception as e:
             return None  # Handle errors or exceptions here
