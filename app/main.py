@@ -1,10 +1,11 @@
 from functools import cache
 import logging
 from importlib import resources as impresources
+import uuid
 
 import geopandas as gpd
 import requests
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from pyproj import CRS, Transformer
 from shapely.geometry import Point
 
@@ -62,18 +63,21 @@ async def get_statsector(
                         lat = location["lat"]
                         lon = location["lng"]
                     else:
-                        return {"error": f"Geocoding API response status: {data['status']}"}
+                        raise HTTPException(status_code=400, detail=f"Geocoding API response status: {data['status']}")
                 else:
-                    return {"error": f"Request failed with status code: {response.status_code}"}
+                    raise HTTPException(status_code=500, detail=f"Internal request failed with status code: {response.status_code}")
             except Exception as e:
-                return {"error": f"An error occurred: {e}"}
+                # Log an error, and correlate it with a guid, so we don't expose it to the end-user
+                error_id = uuid.uuid4()
+                logger.error(f"An error occurred ({error_id}): {e}")
+                raise HTTPException(status_code=500, detail=f"An internal error occurred - error id: {error_id}")
 
 
         else:
-            return {"error": "Either 'lat' and 'lon' or 'address' must be provided."}
+            raise HTTPException(status_code=400, detail="Either 'lat' and 'lon' or 'address' must be provided.")
     else:
         if not isinstance(lat, float) or not isinstance(lon, float):
-            return {"error": "'lat' and 'lon' must be of type float."}
+            raise HTTPException(status_code=400, detail="'lat' and 'lon' must be of type float.")
 
     # Stat Sector uses Lambert projection 
     # So we have to have transformers, World Geodetic System to Lambert and back
