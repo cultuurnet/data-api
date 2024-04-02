@@ -1,4 +1,6 @@
 from functools import cache
+from cachetools.func import ttl_cache
+
 import logging
 from importlib import resources as impresources
 import uuid
@@ -25,6 +27,17 @@ statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parque
 
 app = FastAPI()
 
+# Global setup
+
+# Stat Sector uses Lambert projection
+# So we have to have transformers, World Geodetic System to Lambert and back
+# https://www.ngi.be/website/de-lambert-kaartprojectie-2/
+crs_lambert = CRS.from_string("EPSG:31370")
+crs_wgs = CRS.from_string("EPSG:4326")
+
+transformer_l2w = Transformer.from_crs(crs_lambert, crs_wgs)
+transformer_w2l = Transformer.from_crs(crs_wgs, crs_lambert)
+
 
 # Cache this so the file is only read once (during lifecyle of container)
 @cache
@@ -32,6 +45,8 @@ def get_statsectors():
     logger.info("reading file...")
     return gpd.read_parquet(statsector_parquet)
 
+# The following file takes a short while to load
+statsectors = get_statsectors()
 
 @app.get("/", tags=["root"])
 async def root():
@@ -44,55 +59,18 @@ async def get_statsector(
     lon: float = Query(default=None, description="Longitude"),
     address: str = Query(default=None, description="Address"),
 ):
-    if lat is None and lon is None:
-        if address is not None:
-            # Additional validation: Ensure address is a string
-            if not isinstance(address, str):
-                return {"error": "'address' must be of type string."}
-
-            base_url = "https://maps.googleapis.com/maps/api/geocode/json"
-
-            params = {
-                "address": address,
-                "key": api_key,
-            }
-
-            try:
-                response = requests.get(base_url, params=params)
-                data = response.json()
-
-                if response.status_code == 200:
-                    if data["status"] == "OK":
-                        location = data["results"][0]["geometry"]["location"]
-                        lat = location["lat"]
-                        lon = location["lng"]
-                    else:
-                        raise HTTPException(status_code=400, detail=f"Geocoding API response status: {data['status']}")
-                else:
-                    raise HTTPException(status_code=500, detail=f"Internal request failed with status code: {response.status_code}")
-            except Exception as e:
-                # Log an error, and correlate it with a guid, so we don't expose it to the end-user
-                error_id = uuid.uuid4()
-                logger.error(f"An error occurred ({error_id}): {e}")
-                raise HTTPException(status_code=500, detail=f"An internal error occurred - error id: {error_id}")
-
-        else:
-            raise HTTPException(status_code=400, detail="Either 'lat' and 'lon' or 'address' must be provided.")
-    else:
+    
+    # Figure out lat and long (if needed, we do an address lookup)
+    if lat is not None and lon is not None:
         if not isinstance(lat, float) or not isinstance(lon, float):
             raise HTTPException(status_code=400, detail="'lat' and 'lon' must be of type float.")
-
-    # Stat Sector uses Lambert projection
-    # So we have to have transformers, World Geodetic System to Lambert and back
-    # https://www.ngi.be/website/de-lambert-kaartprojectie-2/
-    crs_lambert = CRS.from_string("EPSG:31370")
-    crs_wgs = CRS.from_string("EPSG:4326")
-
-    transformer_l2w = Transformer.from_crs(crs_lambert, crs_wgs)
-    transformer_w2l = Transformer.from_crs(crs_wgs, crs_lambert)
-
-    # The following file takes a short while to load
-    statsectors = get_statsectors()
+    elif address is not None:
+        # Additional validation: Ensure address is a string
+        if not isinstance(address, str):
+            return {"error": "'address' must be of type string."}
+        lat, lon = lookup_address(address)
+    else:
+        raise HTTPException(status_code=400, detail="Either both 'lat' and 'lon' or 'address' must be provided.")
 
     # Transform to Lambert projection
     res_lam = transformer_w2l.transform(lat, lon)
@@ -115,6 +93,39 @@ async def get_statsector(
     except Exception as e:
         return {"error": str(e)}
 
+@ttl_cache(maxsize=10000, ttl=10 * 60)
+def lookup_address(address: str):
+    base_url = "https://maps.googleapis.com/maps/api/geocode/json"
+
+    params = {
+        "address": address,
+        "key": api_key,
+    }
+
+    try:
+        # We don't log the address, as it may contain sensitive information
+        logger.info(f"Looking up address using Google Maps Geocoding API")
+
+        response = requests.get(base_url, params=params)
+        data = response.json()
+
+        if response.status_code == 200:
+            if data["status"] == "OK":
+                location = data["results"][0]["geometry"]["location"]
+                lat = location["lat"]
+                lon = location["lng"]
+            else:
+                raise HTTPException(status_code=400, detail=f"Geocoding API response status: {data['status']}")
+        else:
+            raise HTTPException(status_code=500, detail=f"Internal request failed with status code: {response.status_code}")
+    except Exception as e:
+        # Log an error, and correlate it with a guid, so we don't expose it to the end-user
+        error_id = uuid.uuid4()
+        logger.error(f"An error occurred ({error_id}): {e}")
+        raise HTTPException(status_code=500, detail=f"An internal error occurred - error id: {error_id}")
+    
+    return lat, lon
+    
 
 @app.post("/")
 async def get_statsector_bq(payload: dict):

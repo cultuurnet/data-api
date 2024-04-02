@@ -24,7 +24,7 @@ class TestGetStatsectorEndpoint(unittest.TestCase):
         data = response.json()
         self.assertEqual(response.status_code, 400)
         self.assertIn("detail", data)
-        self.assertIn("Either 'lat' and 'lon' or 'address' must be provided.", data['detail'])
+        self.assertIn("Either both 'lat' and 'lon' or 'address' must be provided.", data['detail'])
 
     def test_get_statsector_invalid_coordinates(self):
         response = client.get("/get-statsector/?lat=invalid&lon=invalid")
