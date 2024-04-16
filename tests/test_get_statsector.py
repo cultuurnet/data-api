@@ -13,7 +13,7 @@ class TestGetStatsectorEndpoint(unittest.TestCase):
         self.assertIn("sector_name", data)
 
     def test_get_statsector_with_address(self):
-        response = client.get("/get-statsector/?address=Parkstraat 215 Leuven")
+        response = client.get('/get-statsector/?address=Parkstraat%20215%20Leuven')
         data = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertIn("sector_id", data)
