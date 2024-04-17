@@ -31,7 +31,7 @@ The following tests can be run to test the performance of the API with e.g. cach
 
 Testing the geo to statsector conversion
 ```sh
-poetry run python -m tests.perftest_geo.py
+poetry run python -m tests.perftest_geo
 ```
 
 Testing the address to statsector conversion
@@ -40,7 +40,7 @@ Testing the address to statsector conversion
 > as it will result in a lot of requests to the Google Maps API, and increase costs.
 
 ```sh
-poetry run python -m tests.perftest_address.py
+poetry run python -m tests.perftest_address
 ```
 
 ### Deploying to Cloud Run
