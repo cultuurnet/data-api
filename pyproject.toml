@@ -18,6 +18,7 @@ google-cloud-secret-manager = "^2.16.4"
 pyarrow = "^13.0.0"
 httpx = "^0.25.1"
 typing-extensions = "4.7" # 2023-11-07 fix for fastapi bug, see https://github.com/pyodide/pyodide/issues/4234#issuecomment-1771735148
+google-cloud-logging = "^3.10.0"
 
 
 [build-system]

@@ -1,23 +1,44 @@
-from functools import cache
-from cachetools.func import ttl_cache
-
+import asyncio
 import logging
-from importlib import resources as impresources
+import os
 import uuid
+from contextlib import asynccontextmanager
+from functools import cache
+from hashlib import md5
+from importlib import resources as impresources
+from time import sleep
 
 import geopandas as gpd
+import httpx
 import requests
-from fastapi import FastAPI, Query, HTTPException
+from cachetools.func import ttl_cache
+from cachetools import TTLCache
+from fastapi import FastAPI, HTTPException, Query, Request
 from pyproj import CRS, Transformer
 from shapely.geometry import Point
-from fastapi import HTTPException
 
 from app.secretmanager import Config
 
 from . import data
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+if os.getenv("LOCAL_LOGGING", "False") == "True":
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s - %(name)s',)
+else:
+    import google.cloud.logging
+
+    # Instantiate a client
+    client = google.cloud.logging.Client()
+
+    # Retrieves a Cloud Logging handler based on the environment
+    # you're running in and integrates the handler with the
+    # Python logging module. By default this captures all logs
+    # at INFO level and higher
+    client.setup_logging(log_level=logging.INFO)
+
+    logger = logging.getLogger(__name__)
+    # logger.addHandler(logging.StreamHandler())
+
 
 config = Config()
 api_key = config.get_api_key()
@@ -25,7 +46,16 @@ api_key = config.get_api_key()
 # Location of static file
 statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parquet'
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.requests_client = httpx.AsyncClient()
+    yield
+    await app.requests_client.aclose()
+
+app = FastAPI(lifespan=lifespan)
+
+# Create a cache with a maximum size of 100 entries and a TTL of 600 seconds
+address_cache = TTLCache(maxsize=100, ttl=600)
 
 # Global setup
 
@@ -55,22 +85,28 @@ async def root():
 
 @app.get("/get-statsector/")
 async def get_statsector(
+    request: Request,
     lat: float = Query(default=None, description="Latitude"),
     lon: float = Query(default=None, description="Longitude"),
     address: str = Query(default=None, description="Address"),
 ):
-    
+    logger.info(f'Starting with lat: {lat}, lon: {lon}, address')
+
     # Figure out lat and long (if needed, we do an address lookup)
     if lat is not None and lon is not None:
         if not isinstance(lat, float) or not isinstance(lon, float):
             raise HTTPException(status_code=400, detail="'lat' and 'lon' must be of type float.")
+        
+        # await asyncio.sleep(1)  # Simulate a slow response
     elif address is not None:
         # Additional validation: Ensure address is a string
         if not isinstance(address, str):
             return {"error": "'address' must be of type string."}
-        lat, lon = lookup_address(address)
+        lat, lon = await lookup_address(address, request)
     else:
         raise HTTPException(status_code=400, detail="Either both 'lat' and 'lon' or 'address' must be provided.")
+
+    logger.info(f'Continuing with lat: {int(lat*100)}, lon: {int(lon*100)} (truncated values)')
 
     # Transform to Lambert projection
     res_lam = transformer_w2l.transform(lat, lon)
@@ -87,14 +123,15 @@ async def get_statsector(
         }
 
         if first_sector_result["cd_sector"]:
+            logger.debug(f"Found sector: {response['sector_id']}")
             return response
         else:
             return {"error": "Sector not found for the given coordinates"}
     except Exception as e:
         return {"error": str(e)}
 
-@ttl_cache(maxsize=10000, ttl=10 * 60)
-def lookup_address(address: str):
+# @ttl_cache(maxsize=10000, ttl=10 * 60)
+async def lookup_address(address: str, request: Request):
     base_url = "https://maps.googleapis.com/maps/api/geocode/json"
 
     params = {
@@ -102,11 +139,21 @@ def lookup_address(address: str):
         "key": api_key,
     }
 
+    # Check if the result is already in the cache
+    result = address_cache.get(address)
+    if result is not None:
+        logger.info(f"Address found in cache")
+        return result[0], result[1]
+
     try:
         # We don't log the address, as it may contain sensitive information
         logger.info(f"Looking up address using Google Maps Geocoding API")
 
-        response = requests.get(base_url, params=params)
+        # response = requests.get(base_url, params=params)
+
+        requests_client = request.app.requests_client
+        response = await requests_client.get(base_url, params=params)
+        
         data = response.json()
 
         if response.status_code == 200:
@@ -124,11 +171,13 @@ def lookup_address(address: str):
         logger.error(f"An error occurred ({error_id}): {e}")
         raise HTTPException(status_code=500, detail=f"An internal error occurred - error id: {error_id}")
     
+    # Store the result in the cache
+    address_cache[address] = lat, lon
     return lat, lon
     
 
 @app.post("/")
-async def get_statsector_bq(payload: dict):
+async def get_statsector_bq(request: Request, payload: dict):
     """Example payload
     {
         "requestId": "124ab1c",
@@ -150,18 +199,34 @@ async def get_statsector_bq(payload: dict):
         field = payload["userDefinedContext"]["field"]
         if mode == "address":
             results = []
-            for call in payload["calls"]:
-                result = await get_statsector(address=call[0], lat=None, lon=None)
-                results.append(result[field])
+            logger.info("Processing BigQuery address batch of {}".format(len(payload['calls'])))
+
+            tasks = [get_statsector(request=request, address=call[0], lat=None, lon=None) for call in payload["calls"]]
+            responses = await asyncio.gather(*tasks)
+            for response in responses:
+                results.append(response[field])
+
+            # for call in payload["calls"]:
+            #     result = await get_statsector(address=call[0], lat=None, lon=None)
+            #     results.append(result[field])
         
+            logger.info("Done processing address batch. Returning results.")
             return { "replies":  results } 
 
         elif mode == "coordinates":
             results = []
-            for call in payload["calls"]:
-                result = await get_statsector(lat=call[0], lon=call[1], address=None)
-                results.append(result[field])
+            logger.info("Processing BigQuery coordinates batch of {}".format(len(payload['calls'])))
+
+            tasks = [get_statsector(request=request, lat=call[0], lon=call[1], address=None) for call in payload["calls"]]
+            responses = await asyncio.gather(*tasks)
+            for response in responses:
+                results.append(response[field])
+
+            # for call in payload["calls"]:
+                # result = await get_statsector(lat=call[0], lon=call[1], address=None)
+                # results.append(result[field])
             
+            logger.info("Done processing coordinates batch. Returning results.")
             return { "replies":  results } 
         else:
             raise HTTPException(status_code=400, detail="Invalid mode")
