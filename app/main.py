@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -90,7 +91,8 @@ async def get_statsector(
     lon: float = Query(default=None, description="Longitude"),
     address: str = Query(default=None, description="Address"),
 ):
-    logger.info(f'Starting with lat: {lat}, lon: {lon}, address')
+    redacted_address = '*'*len(address) if address is not None else None
+    logger.info(f'Statsector calculations for lat: {lat}, lon: {lon}, address: {redacted_address}')
 
     # Figure out lat and long (if needed, we do an address lookup)
     if lat is not None and lon is not None:
@@ -106,7 +108,7 @@ async def get_statsector(
     else:
         raise HTTPException(status_code=400, detail="Either both 'lat' and 'lon' or 'address' must be provided.")
 
-    logger.info(f'Continuing with lat: {int(lat*100)}, lon: {int(lon*100)} (truncated values)')
+    logger.info(f'Continuing calculations for lat: {lat}, lon: {lon}, address: {redacted_address}')
 
     # Transform to Lambert projection
     res_lam = transformer_w2l.transform(lat, lon)
@@ -195,41 +197,41 @@ async def get_statsector_bq(request: Request, payload: dict):
 
     """
     try:
+        logger.info(f'request: {json.dumps(payload)}')
         mode = payload["userDefinedContext"]["mode"]
         field = payload["userDefinedContext"]["field"]
-        if mode == "address":
-            results = []
-            logger.info("Processing BigQuery address batch of {}".format(len(payload['calls'])))
-
-            tasks = [get_statsector(request=request, address=call[0], lat=None, lon=None) for call in payload["calls"]]
-            responses = await asyncio.gather(*tasks)
-            for response in responses:
-                results.append(response[field])
-
-            # for call in payload["calls"]:
-            #     result = await get_statsector(address=call[0], lat=None, lon=None)
-            #     results.append(result[field])
         
-            logger.info("Done processing address batch. Returning results.")
-            return { "replies":  results } 
-
+        logger.info(f"BigQuery mode set to {mode}")
+        logger.info("Processing BigQuery batch of {}".format(len(payload['calls'])))
+        
+        results = []
+        
+        # Assemble all tasks
+        if mode == "address":
+            tasks = [get_statsector(request=request, address=call[0], lat=None, lon=None) for call in payload["calls"]]
         elif mode == "coordinates":
             results = []
             logger.info("Processing BigQuery coordinates batch of {}".format(len(payload['calls'])))
-
             tasks = [get_statsector(request=request, lat=call[0], lon=call[1], address=None) for call in payload["calls"]]
-            responses = await asyncio.gather(*tasks)
-            for response in responses:
-                results.append(response[field])
-
-            # for call in payload["calls"]:
-                # result = await get_statsector(lat=call[0], lon=call[1], address=None)
-                # results.append(result[field])
-            
-            logger.info("Done processing coordinates batch. Returning results.")
-            return { "replies":  results } 
         else:
             raise HTTPException(status_code=400, detail="Invalid mode")
+        
+        # Wait for tasks to complete
+        # Exceptions must be returned so we can handle them!
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process responses
+        for response in responses:
+            try:
+                results.append(response[field])
+
+            # Catch ALL issues that happened during processing or during the extraction of the field
+            except Exception as e:
+                logger.error(f'Adding None to result due to {type(e).__name__} with details {str(e)} - on result: {response}')
+                results.append(None)
+        
+        logger.info(f"Done processing batch. Returning {len(results)} results.")
+        return { "replies":  results } 
     except KeyError as e:
         print(f'KeyError: {e}')
         raise HTTPException(status_code=400, detail="Invalid payload format")
