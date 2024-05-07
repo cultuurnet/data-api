@@ -9,6 +9,7 @@ from hashlib import md5
 from importlib import resources as impresources
 from time import sleep
 
+import os
 import geopandas as gpd
 import httpx
 import requests
@@ -41,8 +42,13 @@ else:
     # logger.addHandler(logging.StreamHandler())
 
 
-config = Config()
-api_key = config.get_api_key()
+if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') != None:
+    logger.info('Starting with geo_coding enabled')
+    config = Config()
+    api_key = config.get_api_key()
+else:
+    logger.info('Starting with geo_coding disabled')
+    api_key = ''
 
 # Location of static file
 statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parquet'

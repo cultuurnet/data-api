@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 fastapi = "0.103" # 2023-11-07 keep it locked, due to bug https://github.com/pyodide/pyodide/issues/4234#issuecomment-1771735148
-uvicorn = {extras = ["standard"], version = "^0.23.2"}
+uvicorn = {extras = ["standard"], version = "^0.29.0"}
 geopandas = "0.13.2"
 protobuf = "4.24.4"
 pyproj = "3.6.0"
