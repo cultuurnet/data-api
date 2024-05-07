@@ -23,12 +23,12 @@ from app.secretmanager import Config
 
 from . import data
 
-if os.getenv("LOCAL_LOGGING", "False") == "True":
+
+if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') is None or os.getenv("LOCAL_LOGGING", "False") == "True":
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s - %(name)s',)
 else:
     import google.cloud.logging
-
     # Instantiate a client
     client = google.cloud.logging.Client()
 
@@ -40,7 +40,6 @@ else:
 
     logger = logging.getLogger(__name__)
     # logger.addHandler(logging.StreamHandler())
-
 
 if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') != None:
     logger.info('Starting with geo_coding enabled')
