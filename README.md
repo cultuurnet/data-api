@@ -1,11 +1,11 @@
-
+# Statsector API
 
 ## Dev environment setup
 
 ### Running the app in dev mode
 
 We use poetry to manage dependencies.
-If you don't have poetry, you can run `pip install poetry`, or install via e.g. Homebrew.
+If you don't have poetry installed, you can run `pip install poetry`, or install via e.g. Homebrew.
 
 
 ```sh
@@ -21,8 +21,26 @@ uvicorn app.main:app --reload
 
 ### Running the tests
 
+#### Unit Tests
 ```sh
 poetry run python -m unittest discover -s tests
+```
+#### Performance Tests
+
+The following tests can be run to test the performance of the API with e.g. caching enabled.
+
+Testing the geo to statsector conversion
+```sh
+poetry run python -m tests.perftest_geo
+```
+
+Testing the address to statsector conversion
+
+> Warning: Do not test this with too high loads and with caching disabled, 
+> as it will result in a lot of requests to the Google Maps API, and increase costs.
+
+```sh
+poetry run python -m tests.perftest_address
 ```
 
 ### Deploying to Cloud Run
