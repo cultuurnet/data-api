@@ -145,6 +145,8 @@ async def get_statsector(
         first_sector_result = sector_results.iloc[0]
 
         response = {
+            "lat": lat,
+            "lon": lon,
             "sector_id": first_sector_result["cd_sector"],
             "sector_name": first_sector_result["tx_sector_descr_nl"],
         }
