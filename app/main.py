@@ -24,11 +24,18 @@ from app.secretmanager import Config
 from . import data
 
 
-if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') is None or os.getenv("LOCAL_LOGGING", "False") == "True":
+if (
+    os.getenv("GOOGLE_APPLICATION_CREDENTIALS") is None
+    or os.getenv("LOCAL_LOGGING", "False") == "True"
+):
     logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s - %(name)s',)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s - %(name)s",
+    )
 else:
     import google.cloud.logging
+
     # Instantiate a client
     client = google.cloud.logging.Client()
 
@@ -41,22 +48,24 @@ else:
     logger = logging.getLogger(__name__)
     # logger.addHandler(logging.StreamHandler())
 
-if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') != None:
-    logger.info('Starting with geo_coding enabled')
+if os.getenv("GOOGLE_APPLICATION_CREDENTIALS") != None:
+    logger.info("Starting with geo_coding enabled")
     config = Config()
     api_key = config.get_api_key()
 else:
-    logger.info('Starting with geo_coding disabled')
-    api_key = ''
+    logger.info("Starting with geo_coding disabled")
+    api_key = ""
 
 # Location of static file
-statsector_parquet = impresources.files(data) / 'statistical_sectors_2023.parquet'
+statsector_parquet = impresources.files(data) / "statistical_sectors_2023.parquet"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.requests_client = httpx.AsyncClient()
     yield
     await app.requests_client.aclose()
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -81,8 +90,10 @@ def get_statsectors():
     logger.info("reading file...")
     return gpd.read_parquet(statsector_parquet)
 
+
 # The following file takes a short while to load
 statsectors = get_statsectors()
+
 
 @app.get("/", tags=["root"])
 async def root():
@@ -96,14 +107,18 @@ async def get_statsector(
     lon: float = Query(default=None, description="Longitude"),
     address: str = Query(default=None, description="Address"),
 ):
-    redacted_address = '*'*len(address) if address is not None else None
-    logger.info(f'Statsector calculations for lat: {lat}, lon: {lon}, address: {redacted_address}')
+    redacted_address = "*" * len(address) if address is not None else None
+    logger.info(
+        f"Statsector calculations for lat: {lat}, lon: {lon}, address: {redacted_address}"
+    )
 
     # Figure out lat and long (if needed, we do an address lookup)
     if lat is not None and lon is not None:
         if not isinstance(lat, float) or not isinstance(lon, float):
-            raise HTTPException(status_code=400, detail="'lat' and 'lon' must be of type float.")
-        
+            raise HTTPException(
+                status_code=400, detail="'lat' and 'lon' must be of type float."
+            )
+
         # await asyncio.sleep(1)  # Simulate a slow response
     elif address is not None:
         # Additional validation: Ensure address is a string
@@ -111,9 +126,14 @@ async def get_statsector(
             return {"error": "'address' must be of type string."}
         lat, lon = await lookup_address(address, request)
     else:
-        raise HTTPException(status_code=400, detail="Either both 'lat' and 'lon' or 'address' must be provided.")
+        raise HTTPException(
+            status_code=400,
+            detail="Either both 'lat' and 'lon' or 'address' must be provided.",
+        )
 
-    logger.info(f'Continuing calculations for lat: {lat}, lon: {lon}, address: {redacted_address}')
+    logger.info(
+        f"Continuing calculations for lat: {lat}, lon: {lon}, address: {redacted_address}"
+    )
 
     # Transform to Lambert projection
     res_lam = transformer_w2l.transform(lat, lon)
@@ -136,6 +156,7 @@ async def get_statsector(
             return {"error": "Sector not found for the given coordinates"}
     except Exception as e:
         return {"error": str(e)}
+
 
 # @ttl_cache(maxsize=10000, ttl=10 * 60)
 async def lookup_address(address: str, request: Request):
@@ -160,7 +181,7 @@ async def lookup_address(address: str, request: Request):
 
         requests_client = request.app.requests_client
         response = await requests_client.get(base_url, params=params)
-        
+
         data = response.json()
 
         if response.status_code == 200:
@@ -169,19 +190,27 @@ async def lookup_address(address: str, request: Request):
                 lat = location["lat"]
                 lon = location["lng"]
             else:
-                raise HTTPException(status_code=400, detail=f"Geocoding API response status: {data['status']}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Geocoding API response status: {data['status']}",
+                )
         else:
-            raise HTTPException(status_code=500, detail=f"Internal request failed with status code: {response.status_code}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Internal request failed with status code: {response.status_code}",
+            )
     except Exception as e:
         # Log an error, and correlate it with a guid, so we don't expose it to the end-user
         error_id = uuid.uuid4()
         logger.error(f"An error occurred ({error_id}): {e}")
-        raise HTTPException(status_code=500, detail=f"An internal error occurred - error id: {error_id}")
-    
+        raise HTTPException(
+            status_code=500, detail=f"An internal error occurred - error id: {error_id}"
+        )
+
     # Store the result in the cache
     address_cache[address] = lat, lon
     return lat, lon
-    
+
 
 @app.post("/")
 async def get_statsector_bq(request: Request, payload: dict):
@@ -202,25 +231,35 @@ async def get_statsector_bq(request: Request, payload: dict):
 
     """
     try:
-        logger.info(f'request: {json.dumps(payload)}')
+        logger.info(f"request: {json.dumps(payload)}")
         mode = payload["userDefinedContext"]["mode"]
         field = payload["userDefinedContext"]["field"]
-        
+
         logger.info(f"BigQuery mode set to {mode}")
-        logger.info("Processing BigQuery batch of {}".format(len(payload['calls'])))
-        
+        logger.info("Processing BigQuery batch of {}".format(len(payload["calls"])))
+
         results = []
-        
+
         # Assemble all tasks
         if mode == "address":
-            tasks = [get_statsector(request=request, address=call[0], lat=None, lon=None) for call in payload["calls"]]
+            tasks = [
+                get_statsector(request=request, address=call[0], lat=None, lon=None)
+                for call in payload["calls"]
+            ]
         elif mode == "coordinates":
             results = []
-            logger.info("Processing BigQuery coordinates batch of {}".format(len(payload['calls'])))
-            tasks = [get_statsector(request=request, lat=call[0], lon=call[1], address=None) for call in payload["calls"]]
+            logger.info(
+                "Processing BigQuery coordinates batch of {}".format(
+                    len(payload["calls"])
+                )
+            )
+            tasks = [
+                get_statsector(request=request, lat=call[0], lon=call[1], address=None)
+                for call in payload["calls"]
+            ]
         else:
             raise HTTPException(status_code=400, detail="Invalid mode")
-        
+
         # Wait for tasks to complete
         # Exceptions must be returned so we can handle them!
         responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -232,14 +271,16 @@ async def get_statsector_bq(request: Request, payload: dict):
 
             # Catch ALL issues that happened during processing or during the extraction of the field
             except Exception as e:
-                logger.error(f'Adding None to result due to {type(e).__name__} with details {str(e)} - on result: {response}')
+                logger.error(
+                    f"Adding None to result due to {type(e).__name__} with details {str(e)} - on result: {response}"
+                )
                 results.append(None)
-        
+
         logger.info(f"Done processing batch. Returning {len(results)} results.")
-        return { "replies":  results } 
+        return {"replies": results}
     except KeyError as e:
-        print(f'KeyError: {e}')
+        print(f"KeyError: {e}")
         raise HTTPException(status_code=400, detail="Invalid payload format")
     except Exception as e:
-        print(f'Exception: {e}')
+        print(f"Exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
