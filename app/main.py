@@ -47,12 +47,14 @@ else:
     logger = logging.getLogger(__name__)
     # logger.addHandler(logging.StreamHandler())
 
-if os.getenv("GOOGLE_APPLICATION_CREDENTIALS") != None:
-    logger.info("Starting with geo_coding enabled")
+try:
+    logger.info("Try to fetch Google Maps API key")
     config = Config()
     api_key = config.get_api_key()
-else:
-    logger.info("Starting with geo_coding disabled")
+except:
+    logger.info(
+        "Google Maps API key not found. Service will work for coordinates only."
+    )
     api_key = ""
 
 # Location of static file
@@ -184,7 +186,7 @@ async def lookup_address(address: str, request: Request):
         response = await requests_client.get(base_url, params=params)
 
         data = response.json()
-
+        logger.info(f"FULL RESPONSE: {data}")
         if response.status_code == 200:
             if data["status"] == "OK":
                 location = data["results"][0]["geometry"]["location"]
