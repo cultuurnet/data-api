@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import sys
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from functools import cache
@@ -9,20 +11,17 @@ from hashlib import md5
 from importlib import resources as impresources
 from time import sleep
 
-import os
 import geopandas as gpd
 import httpx
 import requests
-from cachetools.func import ttl_cache
+from app.secretmanager import Config
 from cachetools import TTLCache
+from cachetools.func import ttl_cache
 from fastapi import FastAPI, HTTPException, Query, Request
 from pyproj import CRS, Transformer
 from shapely.geometry import Point
 
-from app.secretmanager import Config
-
 from . import data
-
 
 if (
     os.getenv("GOOGLE_APPLICATION_CREDENTIALS") is None
@@ -203,7 +202,21 @@ async def lookup_address(address: str, request: Request):
             )
     except Exception as e:
         # Log an error, and correlate it with a guid, so we don't expose it to the end-user
+
         error_id = uuid.uuid4()
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+
+        # Get formatted exception info
+        error_details = "".join(
+            traceback.format_exception(exc_type, exc_value, exc_traceback)
+        )
+
+        logger.error(
+            f"An error occurred ({error_id}):\n"
+            f"Type: {exc_type.__name__}\n"
+            f"Message: {str(e)}\n"
+            f"Traceback:\n{error_details}"
+        )
         logger.error(f"An error occurred ({error_id}): {e}")
         raise HTTPException(
             status_code=500, detail=f"An internal error occurred - error id: {error_id}"
